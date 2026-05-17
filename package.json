@@ -1,0 +1,13 @@
+{
+  "name": "cardgame1",
+  "version": "0.1.0",
+  "description": "Simple cooperative card game with socket.io",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  }
+}
