@@ -1,4 +1,75 @@
-const socket = io();
+let socket = null;
+
+function createBufferedSocket() {
+  return { _handlers: {}, _emits: [], on(event, cb) { this._handlers[event] = this._handlers[event] || []; this._handlers[event].push(cb); }, emit(event, data) { this._emits.push({ event, data }); } };
+}
+
+function makeLocalServer() {
+  const server = { rooms: {} };
+  function joinRoom(socketObj, roomId, name, char) {
+    server.rooms[roomId] = server.rooms[roomId] || { players: {}, hostId: socketObj.id };
+    const room = server.rooms[roomId];
+    room.hostId = room.hostId || socketObj.id;
+    room.players[socketObj.id] = { id: socketObj.id, name: name || 'Player', char: char || '剣士', isHost: room.hostId === socketObj.id };
+    const players = Object.values(room.players);
+    // notify this socket
+    if (socketObj._handlers && socketObj._handlers['room-state']) {
+      socketObj._handlers['room-state'].forEach(cb => cb({ players, hostId: room.hostId }));
+    }
+    return room;
+  }
+  return { joinRoom, server };
+}
+
+function makeLocalSocket() {
+  const store = makeLocalServer();
+  const id = `local-${Math.random().toString(36).slice(2,8)}`;
+  const sock = { id, _handlers: {}, on(event, cb) { this._handlers[event] = this._handlers[event] || []; this._handlers[event].push(cb); }, emit(event, data) {
+      if (event === 'create-room') {
+        const roomId = data.roomId || (`LOCAL${Math.random().toString(36).slice(2,8)}`).toUpperCase();
+        store.server.rooms = store.server.rooms || {};
+        store.server.rooms[roomId] = store.server.rooms[roomId] || { players: {}, hostId: this.id };
+        store.server.rooms[roomId].hostId = this.id;
+        store.server.rooms[roomId].players[this.id] = { id: this.id, name: data.name || 'Player', char: data.char || '剣士', isHost: true };
+        (this._handlers['room-created'] || []).forEach(cb => cb({ roomId }));
+        const players = Object.values(store.server.rooms[roomId].players);
+        (this._handlers['room-state'] || []).forEach(cb => cb({ players, hostId: store.server.rooms[roomId].hostId }));
+      }
+      if (event === 'join-room') {
+        const roomId = data.roomId;
+        if (!roomId || !store.server.rooms[roomId]) {
+          (this._handlers['room-error'] || []).forEach(cb => cb({ message: 'ルームが見つかりません。' }));
+          return;
+        }
+        store.server.rooms[roomId].players[this.id] = { id: this.id, name: data.name || 'Player', char: data.char || '剣士', isHost: store.server.rooms[roomId].hostId === this.id };
+        const players = Object.values(store.server.rooms[roomId].players);
+        (this._handlers['room-state'] || []).forEach(cb => cb({ players, hostId: store.server.rooms[roomId].hostId }));
+      }
+      if (event === 'start-game') {
+        const roomId = data.roomId;
+        const room = store.server.rooms[roomId];
+        if (!room || room.hostId !== this.id) return;
+        (this._handlers['start-game'] || []).forEach(cb => cb({ roomId }));
+      }
+      if (event === 'player-action') {
+        const roomId = data.roomId;
+        const room = store.server.rooms[roomId];
+        if (!room) return;
+        // local: call player-action handlers (host-side)
+        (this._handlers['player-action'] || []).forEach(cb => cb(data));
+      }
+      if (event === 'send-game-state') {
+        const roomId = data.roomId;
+        const room = store.server.rooms[roomId];
+        if (!room) return;
+        (this._handlers['game-state'] || []).forEach(cb => cb(data.gameState));
+      }
+    } };
+  return sock;
+}
+
+// initialize buffered socket so early handlers can register
+socket = createBufferedSocket();
 
 const roomScreen = document.getElementById('room-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -156,6 +227,33 @@ function startRoom(eventName) {
 function randomRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
+
+function replaceSocket(real) {
+  const buf = socket;
+  // transfer buffered handlers
+  if (buf && buf._handlers) {
+    Object.keys(buf._handlers).forEach(ev => {
+      buf._handlers[ev].forEach(cb => {
+        if (typeof real.on === 'function') real.on(ev, cb);
+      });
+    });
+  }
+  // replay emits
+  if (buf && buf._emits) {
+    buf._emits.forEach(e => {
+      if (typeof real.emit === 'function') real.emit(e.event, e.data);
+    });
+  }
+  socket = real;
+}
+
+function initSocket() {
+  // Always use the built-in local socket (no remote server).
+  replaceSocket(makeLocalSocket());
+}
+
+// initialize connection (real or local)
+initSocket();
 
 function showRoomMessage(text) {
   roomMessage.textContent = text;

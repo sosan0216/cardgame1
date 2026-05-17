@@ -77,6 +77,88 @@
     </section>
   </main>
 
+  <script src="client.js"></script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>協力カードバトル</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>協力カードバトル</h1>
+    <p>スマホ・PC対応。まずはローカルで起動してみましょう。</p>
+  </header>
+
+  <main>
+    <section id="room-screen" class="screen">
+      <h2>ルームに参加</h2>
+      <div class="form-row">
+        <label>プレイヤー名</label>
+        <input id="player-name" type="text" value="Player" />
+      </div>
+      <div class="form-row">
+        <label>キャラクター</label>
+        <select id="character-select">
+          <option>剣士</option>
+          <option>魔法使い</option>
+          <option>僧侶</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>ルームコード</label>
+        <input id="room-id" type="text" placeholder="6文字の英数字" />
+      </div>
+      <div class="button-row">
+        <button id="create-room">ルーム作成</button>
+        <button id="join-room">ルーム参加</button>
+      </div>
+      <div id="room-message" class="message"></div>
+      <div id="player-list" class="panel hidden">
+        <h3>参加プレイヤー</h3>
+        <ul id="players"></ul>
+        <button id="start-game" class="hidden">ゲーム開始</button>
+      </div>
+    </section>
+
+    <section id="game-screen" class="screen hidden">
+      <div class="board">
+        <div class="status-panel">
+          <div class="panel">
+            <h3>プレイヤー</h3>
+            <div id="my-player" class="player-box"></div>
+          </div>
+          <div class="panel">
+            <h3>敵</h3>
+            <div id="enemy-area"></div>
+          </div>
+          <div class="panel">
+            <h3>情報</h3>
+            <div id="info-area"></div>
+            <div id="action-panel" class="action-panel">
+              <button id="end-turn">ターン終了</button>
+              <div id="target-selection" class="target-selection"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hand-panel panel">
+          <h3>手札</h3>
+          <div id="hand-area" class="hand-list"></div>
+        </div>
+      </div>
+
+      <div class="log-panel panel">
+        <h3>ログ</h3>
+        <div id="log-area" class="log-area"></div>
+      </div>
+    </section>
+  </main>
+
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="client.js"></script>
 </body>
