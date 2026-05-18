@@ -10,6 +10,7 @@ let connToHost = null; // for guests
 let hostConns = {}; // for host: peerId -> DataConnection
 
 function makePeerHostSocket(p) {
+  const rooms = {};
   const obj = { id: p.id, _handlers: {}, on(event, cb) { obj._handlers[event] = obj._handlers[event] || []; obj._handlers[event].push(cb); }, emit(event, data) {
       // call local handlers
       (obj._handlers[event] || []).forEach(cb => cb(data));
@@ -19,14 +20,49 @@ function makePeerHostSocket(p) {
       });
     } };
 
+  function getRoom(roomId) {
+    return rooms[roomId];
+  }
+
+  function createRoom(data) {
+    const roomId = data.roomId || p.id;
+    rooms[roomId] = rooms[roomId] || { players: {}, hostId: p.id };
+    rooms[roomId].hostId = p.id;
+    rooms[roomId].players[p.id] = { id: p.id, name: data.name || 'Player', char: data.char || '剣士', isHost: true };
+    obj.emit('room-created', { roomId });
+    obj.emit('room-state', { players: Object.values(rooms[roomId].players), hostId: p.id });
+  }
+
+  function joinRoom(data) {
+    const roomId = data.roomId;
+    const room = getRoom(roomId);
+    if (!room) {
+      obj.emit('room-error', { message: 'ルームが見つかりません。' });
+      return;
+    }
+    room.players[data.playerId] = { id: data.playerId, name: data.name || 'Player', char: data.char || '剣士', isHost: false };
+    obj.emit('room-state', { players: Object.values(room.players), hostId: room.hostId });
+  }
+
+  obj.on('create-room', data => {
+    createRoom(data);
+  });
+
+  obj.on('join-room', data => {
+    joinRoom(data);
+  });
+
   p.on('connection', c => {
     hostConns[c.peer] = c;
     c.on('data', d => {
       const ev = d && d.event;
       const payload = d && d.data;
       if (!ev) return;
-      // attach sender id
       const withSender = Object.assign({}, payload, { playerId: c.peer });
+      if (ev === 'join-room') {
+        joinRoom(withSender);
+        return;
+      }
       (obj._handlers[ev] || []).forEach(cb => cb(withSender));
     });
     c.on('close', () => { delete hostConns[c.peer]; if (obj._handlers['host-changed']) obj._handlers['host-changed'].forEach(cb => cb({ hostId: p.id })); });
