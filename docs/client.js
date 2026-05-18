@@ -256,6 +256,10 @@ socket.on('room-state', data => {
   players = data.players;
   isHost = data.hostId === socket.id;
   renderRoom();
+  if (gameState) {
+    gameState.players = data.players;
+    renderGame();
+  }
 });
 
 socket.on('room-error', data => {
@@ -270,6 +274,11 @@ socket.on('host-changed', data => {
 socket.on('start-game', () => {
   if (!gameState) {
     initializeGameState();
+  } else {
+    gameState.phase = 'player-turn';
+    if (gameState.players && gameState.players[0]) {
+      gameState.currentPlayer = gameState.players[0].id;
+    }
   }
   showGameScreen();
   renderGame();
@@ -511,7 +520,8 @@ function renderTargetSelection() {
 }
 
 function renderEndTurnButton(me) {
-  endTurnButton.disabled = gameState.phase !== 'player-turn' || gameState.currentPlayer !== me.id || me.hp <= 0;
+  const currentMe = me || gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  endTurnButton.disabled = gameState.phase !== 'player-turn' || !currentMe || gameState.currentPlayer !== currentMe.id || currentMe.hp <= 0;
 }
 
 function getAliveEnemies() {
@@ -530,9 +540,10 @@ function canUseCard(player, card) {
 
 function playCard(index) {
   if (!gameState || gameState.phase !== 'player-turn') return;
-  const me = gameState.players.find(p => p.id === socket.id);
+  const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
   if (!me || gameState.currentPlayer !== me.id || me.hp <= 0) return;
-  const card = gameState.hands[me.id][index];
+  const hand = gameState.hands[me.id] || [];
+  const card = hand[index];
   if (!card || me.ap < card.cost) return;
 
   if (card.type === 'damage' && getAliveEnemies().length > 1) {
@@ -543,7 +554,7 @@ function playCard(index) {
 
   const action = {
     roomId,
-    playerId: socket.id,
+    playerId: me.id,
     actionType: 'play-card',
     cardIndex: index,
     cardId: card.id
@@ -553,15 +564,18 @@ function playCard(index) {
 
 function selectTargetEnemy(enemyId) {
   if (pendingCardIndex === null) return;
-  const me = gameState.players.find(p => p.id === socket.id);
+  const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
   if (!me) return;
+  const hand = gameState.hands[me.id] || [];
+  const card = hand[pendingCardIndex];
+  if (!card) return;
 
   const action = {
     roomId,
-    playerId: socket.id,
+    playerId: me.id,
     actionType: 'play-card',
     cardIndex: pendingCardIndex,
-    cardId: gameState.hands[me.id][pendingCardIndex].id,
+    cardId: card.id,
     targetId: enemyId
   };
   pendingCardIndex = null;
