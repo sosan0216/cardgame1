@@ -227,6 +227,11 @@ joinRoomButton.addEventListener('click', () => {
 
 startGameButton.addEventListener('click', () => {
   if (!isHost) return;
+  if (!gameState) {
+    initializeGameState();
+    showGameScreen();
+    renderGame();
+  }
   socket.emit('start-game', { roomId });
 });
 
