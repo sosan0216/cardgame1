@@ -205,6 +205,8 @@ joinRoomButton.addEventListener('click', () => {
       // connect to host
       const conn = peer.connect(targetId);
       conn.on('open', () => {
+        roomId = targetId;
+        roomIdInput.value = roomId;
         // replace buffered socket with guest socket
         connToHost = conn;
         replaceSocket(makePeerGuestSocket(peer, conn));
@@ -217,6 +219,8 @@ joinRoomButton.addEventListener('click', () => {
   } else {
     const conn = peer.connect(targetId);
     conn.on('open', () => {
+      roomId = targetId;
+      roomIdInput.value = roomId;
       connToHost = conn;
       replaceSocket(makePeerGuestSocket(peer, conn));
       showRoomMessage('ホストへ接続しました');
@@ -421,6 +425,7 @@ function renderGame() {
   if (!gameState) return;
 
   const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  const otherPlayers = gameState.players.filter(p => p.id !== me.id);
 
   myPlayerBox.innerHTML = `
     <div class="player-info">
@@ -430,6 +435,19 @@ function renderGame() {
       シールド: ${me.shield}<br />
       攻撃バフ: ${me.buffAttack} (${me.buffTurn}ターン)
     </div>
+    ${otherPlayers.length ? `
+      <div class="other-players">
+        <h4>他プレイヤー</h4>
+        ${otherPlayers.map(p => `
+          <div class="player-info">
+            <strong>${p.name} (${p.char})</strong><br />
+            HP: ${p.hp} / ${p.maxHp}<br />
+            AP: ${p.ap} / 7<br />
+            シールド: ${p.shield}
+          </div>
+        `).join('')}
+      </div>
+    ` : ''}
   `;
 
   enemyArea.innerHTML = gameState.enemies.map(enemy => `
