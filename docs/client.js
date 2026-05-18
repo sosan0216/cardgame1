@@ -4,68 +4,55 @@ function createBufferedSocket() {
   return { _handlers: {}, _emits: [], on(event, cb) { this._handlers[event] = this._handlers[event] || []; this._handlers[event].push(cb); }, emit(event, data) { this._emits.push({ event, data }); } };
 }
 
-function makeLocalServer() {
-  const server = { rooms: {} };
-  function joinRoom(socketObj, roomId, name, char) {
-    server.rooms[roomId] = server.rooms[roomId] || { players: {}, hostId: socketObj.id };
-    const room = server.rooms[roomId];
-    room.hostId = room.hostId || socketObj.id;
-    room.players[socketObj.id] = { id: socketObj.id, name: name || 'Player', char: char || '剣士', isHost: room.hostId === socketObj.id };
-    const players = Object.values(room.players);
-    // notify this socket
-    if (socketObj._handlers && socketObj._handlers['room-state']) {
-      socketObj._handlers['room-state'].forEach(cb => cb({ players, hostId: room.hostId }));
-    }
-    return room;
-  }
-  return { joinRoom, server };
+// PeerJS-based P2P socket (host-mediated star topology)
+let peer = null;
+let connToHost = null; // for guests
+let hostConns = {}; // for host: peerId -> DataConnection
+
+function makePeerHostSocket(p) {
+  const obj = { id: p.id, _handlers: {}, on(event, cb) { obj._handlers[event] = obj._handlers[event] || []; obj._handlers[event].push(cb); }, emit(event, data) {
+      // call local handlers
+      (obj._handlers[event] || []).forEach(cb => cb(data));
+      // broadcast to all connected guests
+      Object.values(hostConns).forEach(c => {
+        try { c.send({ event, data }); } catch (e) { /* ignore */ }
+      });
+    } };
+
+  p.on('connection', c => {
+    hostConns[c.peer] = c;
+    c.on('data', d => {
+      const ev = d && d.event;
+      const payload = d && d.data;
+      if (!ev) return;
+      // attach sender id
+      const withSender = Object.assign({}, payload, { playerId: c.peer });
+      (obj._handlers[ev] || []).forEach(cb => cb(withSender));
+    });
+    c.on('close', () => { delete hostConns[c.peer]; if (obj._handlers['host-changed']) obj._handlers['host-changed'].forEach(cb => cb({ hostId: p.id })); });
+  });
+
+  return obj;
 }
 
-function makeLocalSocket() {
-  const store = makeLocalServer();
-  const id = `local-${Math.random().toString(36).slice(2,8)}`;
-  const sock = { id, _handlers: {}, on(event, cb) { this._handlers[event] = this._handlers[event] || []; this._handlers[event].push(cb); }, emit(event, data) {
-      if (event === 'create-room') {
-        const roomId = data.roomId || (`LOCAL${Math.random().toString(36).slice(2,8)}`).toUpperCase();
-        store.server.rooms = store.server.rooms || {};
-        store.server.rooms[roomId] = store.server.rooms[roomId] || { players: {}, hostId: this.id };
-        store.server.rooms[roomId].hostId = this.id;
-        store.server.rooms[roomId].players[this.id] = { id: this.id, name: data.name || 'Player', char: data.char || '剣士', isHost: true };
-        (this._handlers['room-created'] || []).forEach(cb => cb({ roomId }));
-        const players = Object.values(store.server.rooms[roomId].players);
-        (this._handlers['room-state'] || []).forEach(cb => cb({ players, hostId: store.server.rooms[roomId].hostId }));
-      }
-      if (event === 'join-room') {
-        const roomId = data.roomId;
-        if (!roomId || !store.server.rooms[roomId]) {
-          (this._handlers['room-error'] || []).forEach(cb => cb({ message: 'ルームが見つかりません。' }));
-          return;
-        }
-        store.server.rooms[roomId].players[this.id] = { id: this.id, name: data.name || 'Player', char: data.char || '剣士', isHost: store.server.rooms[roomId].hostId === this.id };
-        const players = Object.values(store.server.rooms[roomId].players);
-        (this._handlers['room-state'] || []).forEach(cb => cb({ players, hostId: store.server.rooms[roomId].hostId }));
-      }
-      if (event === 'start-game') {
-        const roomId = data.roomId;
-        const room = store.server.rooms[roomId];
-        if (!room || room.hostId !== this.id) return;
-        (this._handlers['start-game'] || []).forEach(cb => cb({ roomId }));
-      }
-      if (event === 'player-action') {
-        const roomId = data.roomId;
-        const room = store.server.rooms[roomId];
-        if (!room) return;
-        // local: call player-action handlers (host-side)
-        (this._handlers['player-action'] || []).forEach(cb => cb(data));
-      }
-      if (event === 'send-game-state') {
-        const roomId = data.roomId;
-        const room = store.server.rooms[roomId];
-        if (!room) return;
-        (this._handlers['game-state'] || []).forEach(cb => cb(data.gameState));
-      }
+function makePeerGuestSocket(p, c) {
+  const obj = { id: p.id, _handlers: {}, on(event, cb) { obj._handlers[event] = obj._handlers[event] || []; obj._handlers[event].push(cb); }, emit(event, data) {
+      // send to host
+      try { c.send({ event, data }); } catch (e) { /* ignore */ }
     } };
-  return sock;
+
+  c.on('data', d => {
+    const ev = d && d.event;
+    const payload = d && d.data;
+    if (!ev) return;
+    (obj._handlers[ev] || []).forEach(cb => cb(payload));
+  });
+
+  c.on('close', () => {
+    if (obj._handlers['room-error']) obj._handlers['room-error'].forEach(cb => cb({ message: '接続が切断されました' }));
+  });
+
+  return obj;
 }
 
 // initialize buffered socket so early handlers can register
@@ -149,19 +136,57 @@ const stageEnemies = [
 ];
 
 createRoomButton.addEventListener('click', () => {
-  roomId = roomIdInput.value.trim() || randomRoomId();
+  // Start as host (PeerJS)
   myCharacter = characterSelect.value;
-  startRoom('create-room');
+  if (!peer) {
+    peer = new Peer();
+    peer.on('open', id => {
+      roomId = id;
+      // replace buffered socket with host socket
+      replaceSocket(makePeerHostSocket(peer));
+      // notify UI
+      roomIdInput.value = roomId;
+      showRoomMessage(`ホストとして開始しました。ホストID: ${roomId}`);
+      startRoom('create-room');
+    });
+    peer.on('error', err => showRoomMessage('Peer error: ' + err));
+  } else {
+    startRoom('create-room');
+  }
 });
 
 joinRoomButton.addEventListener('click', () => {
-  roomId = roomIdInput.value.trim();
-  if (!roomId) {
+  const targetId = roomIdInput.value.trim();
+  if (!targetId) {
     showRoomMessage('ルームコードを入力してください。');
     return;
   }
   myCharacter = characterSelect.value;
-  startRoom('join-room');
+  // Start peer and connect to host
+  if (!peer) {
+    peer = new Peer();
+    peer.on('open', id => {
+      // connect to host
+      const conn = peer.connect(targetId);
+      conn.on('open', () => {
+        // replace buffered socket with guest socket
+        connToHost = conn;
+        replaceSocket(makePeerGuestSocket(peer, conn));
+        showRoomMessage('ホストへ接続しました');
+        startRoom('join-room');
+      });
+      conn.on('error', () => showRoomMessage('ホストへの接続に失敗しました'));
+    });
+    peer.on('error', err => showRoomMessage('Peer error: ' + err));
+  } else {
+    const conn = peer.connect(targetId);
+    conn.on('open', () => {
+      connToHost = conn;
+      replaceSocket(makePeerGuestSocket(peer, conn));
+      showRoomMessage('ホストへ接続しました');
+      startRoom('join-room');
+    });
+  }
 });
 
 startGameButton.addEventListener('click', () => {
