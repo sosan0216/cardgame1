@@ -272,14 +272,6 @@ function replaceSocket(real) {
   socket = real;
 }
 
-function initSocket() {
-  // Always use the built-in local socket (no remote server).
-  replaceSocket(makeLocalSocket());
-}
-
-// initialize connection (real or local)
-initSocket();
-
 function showRoomMessage(text) {
   roomMessage.textContent = text;
 }
