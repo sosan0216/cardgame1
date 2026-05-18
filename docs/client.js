@@ -122,6 +122,19 @@ let gameState = null;
 let myCharacter = '剣士';
 let pendingCardIndex = null;
 
+function getMyPlayerId() {
+  return myPlayerId || (socket && socket.id) || '';
+}
+
+function shuffleArray(array) {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
 
 const characterList = ['剣士', '魔法使い', '僧侶'];
 const cardDefinitions = {
@@ -231,6 +244,10 @@ joinRoomButton.addEventListener('click', () => {
 
 startGameButton.addEventListener('click', () => {
   if (!isHost) return;
+  if (!players || players.length === 0) {
+    showRoomMessage('まずルームにプレイヤーを参加させてください。');
+    return;
+  }
   if (!gameState) {
     initializeGameState();
     showGameScreen();
@@ -241,9 +258,9 @@ startGameButton.addEventListener('click', () => {
 
 endTurnButton.addEventListener('click', () => {
   if (!gameState) return;
-  const me = gameState.players.find(p => p.id === socket.id);
+  const me = gameState.players.find(p => p.id === getMyPlayerId());
   if (!me || gameState.currentPlayer !== me.id) return;
-  socket.emit('player-action', { roomId, playerId: socket.id, actionType: 'end-turn' });
+  socket.emit('player-action', { roomId, playerId: me.id, actionType: 'end-turn' });
 });
 
 socket.on('room-created', data => {
@@ -272,21 +289,25 @@ socket.on('host-changed', data => {
 });
 
 socket.on('start-game', () => {
-  if (!gameState) {
-    initializeGameState();
+  if (isHost) {
+    if (!gameState) {
+      initializeGameState();
+    }
+    showGameScreen();
+    renderGame();
   } else {
-    gameState.phase = 'player-turn';
-    if (gameState.players && gameState.players[0]) {
-      gameState.currentPlayer = gameState.players[0].id;
+    if (gameState) {
+      showGameScreen();
+      renderGame();
+    } else {
+      showRoomMessage('ゲーム開始。ホストから状態を待っています...');
     }
   }
-  showGameScreen();
-  renderGame();
 });
 
 socket.on('player-action', data => {
   if (!gameState) return;
-  if (socket.id === data.playerId && !isHost) return;
+  if (getMyPlayerId() === data.playerId && !isHost) return;
   if (!isHost) return;
   applyAction(data);
 });
@@ -294,6 +315,13 @@ socket.on('player-action', data => {
 socket.on('game-state', state => {
   if (!state) return;
   gameState = state;
+  if (!gameState.phase) {
+    gameState.phase = 'player-turn';
+  }
+  if (!gameState.currentPlayer && gameState.players && gameState.players[0]) {
+    gameState.currentPlayer = gameState.players[0].id;
+  }
+  showGameScreen();
   renderGame();
 });
 
@@ -324,6 +352,7 @@ function replaceSocket(real) {
     });
   }
   socket = real;
+  myPlayerId = socket.id || myPlayerId;
 }
 
 function showRoomMessage(text) {
@@ -344,7 +373,7 @@ function renderRoom() {
 
 function initializeGameState() {
   myPlayerId = socket.id;
-  const roomPlayers = players.map(p => {
+  let roomPlayers = players.map(p => {
     const char = p.char || '剣士';
     const maxHp = char === '剣士' ? 50 : char === '魔法使い' ? 40 : 30;
     return {
@@ -359,16 +388,17 @@ function initializeGameState() {
       buffTurn: 0,
       doubleAttackTurns: 0,
       regen: 0,
-      selected: p.id === socket.id
+      selected: p.id === getMyPlayerId()
     };
   });
 
+  roomPlayers = shuffleArray(roomPlayers);
   const enemies = createStageEnemies(1, roomPlayers.length);
 
   gameState = {
     roomId,
     stage: 1,
-    currentPlayer: roomPlayers[0].id,
+    currentPlayer: roomPlayers[0] ? roomPlayers[0].id : getMyPlayerId(),
     round: 1,
     players: roomPlayers,
     enemies,
@@ -433,7 +463,8 @@ function showGameScreen() {
 function renderGame() {
   if (!gameState) return;
 
-  const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  const myId = getMyPlayerId();
+  const me = gameState.players.find(p => p.id === myId) || gameState.players[0];
   const otherPlayers = gameState.players.filter(p => p.id !== me.id);
 
   myPlayerBox.innerHTML = `
@@ -470,7 +501,8 @@ function renderGame() {
 
   infoArea.innerHTML = `
     <p>ステージ: ${gameState.stage}</p>
-    <p>現在のターン: ${gameState.currentPlayer === socket.id ? 'あなた' : '他のプレイヤー'}</p>
+    <p>現在のターン: ${gameState.currentPlayer === getMyPlayerId() ? 'あなた' : '他のプレイヤー'}</p>
+    <p>あなたのID: ${myId}</p>
     <p>フェーズ: ${gameState.phase}</p>
     <p>ログ最新: ${gameState.log.slice(-3).join(' / ')}</p>
   `;
@@ -520,7 +552,7 @@ function renderTargetSelection() {
 }
 
 function renderEndTurnButton(me) {
-  const currentMe = me || gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  const currentMe = me || gameState.players.find(p => p.id === getMyPlayerId()) || gameState.players[0];
   endTurnButton.disabled = gameState.phase !== 'player-turn' || !currentMe || gameState.currentPlayer !== currentMe.id || currentMe.hp <= 0;
 }
 
@@ -540,7 +572,7 @@ function canUseCard(player, card) {
 
 function playCard(index) {
   if (!gameState || gameState.phase !== 'player-turn') return;
-  const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  const me = gameState.players.find(p => p.id === getMyPlayerId()) || gameState.players[0];
   if (!me || gameState.currentPlayer !== me.id || me.hp <= 0) return;
   const hand = gameState.hands[me.id] || [];
   const card = hand[index];
@@ -564,7 +596,7 @@ function playCard(index) {
 
 function selectTargetEnemy(enemyId) {
   if (pendingCardIndex === null) return;
-  const me = gameState.players.find(p => p.id === socket.id) || gameState.players[0];
+  const me = gameState.players.find(p => p.id === getMyPlayerId()) || gameState.players[0];
   if (!me) return;
   const hand = gameState.hands[me.id] || [];
   const card = hand[pendingCardIndex];
