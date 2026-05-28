@@ -573,7 +573,7 @@ function renderTargetSelection() {
     }
 
     const label = document.createElement('div');
-    label.textContent = '味方を選んでください。';
+    label.textContent = '対象プレイヤーを選んでください。';
     targetSelection.appendChild(label);
 
     targets.forEach(player => {
