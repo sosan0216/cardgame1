@@ -314,7 +314,7 @@ socket.on('player-action', data => {
 
 socket.on('game-state', state => {
   if (!state) return;
-  gameState = state;
+  gameState = state.gameState || state;
   if (!gameState.phase) {
     gameState.phase = 'player-turn';
   }
@@ -855,5 +855,5 @@ function stageClear() {
 }
 
 function sendGameState() {
-  socket.emit('send-game-state', { roomId, gameState });
+  socket.emit('game-state', gameState);
 }
