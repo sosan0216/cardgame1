@@ -154,11 +154,11 @@ const cardDefinitions = {
     { id: 'shield', name: 'シールド', cost: 3, text: '味方1人に防御シールド7', type: 'shield', value: 7 }
   ],
   僧侶: [
-    { id: 'heal', name: '回復', cost: 2, text: '味方1人を7回復', type: 'heal', value: 7 },
+    { id: 'heal', name: '回復', cost: 2, text: '味方1人を5回復', type: 'heal', value: 5 },
     { id: 'sanctuary', name: '聖域設置', cost: 2, text: '毎ターン2回復するバフ', type: 'regen', value: 2 },
-    { id: 'group-heal', name: '全体回復', cost: 3, text: '全員を4回復', type: 'healAll', value: 4 },
-    { id: 'overheal', name: 'オーバーヒール', cost: 4, text: '上限を無視して7回復', type: 'overheal', value: 7 },
-    { id: 'mega-overheal', name: 'オーバーヒール＋', cost: 5, text: '全員を上限無視で8回復', type: 'overhealAll', value: 8 }
+    { id: 'group-heal', name: '全体回復', cost: 3, text: '全員を2回復', type: 'healAll', value: 2 },
+    { id: 'overheal', name: 'オーバーヒール', cost: 4, text: '上限を無視して5回復', type: 'overheal', value: 5 },
+    { id: 'mega-overheal', name: 'オーバーヒール＋', cost: 5, text: '全員を上限無視で6回復', type: 'overhealAll', value: 6 }
   ]
 };
 
