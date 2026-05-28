@@ -121,6 +121,7 @@ let players = [];
 let gameState = null;
 let myCharacter = '剣士';
 let pendingCardIndex = null;
+let pendingTargetType = null;
 
 function getMyPlayerId() {
   return myPlayerId || (socket && socket.id) || '';
@@ -533,22 +534,59 @@ function renderTargetSelection() {
   targetSelection.innerHTML = '';
   if (pendingCardIndex === null) return;
 
-  const alive = getAliveEnemies();
-  if (alive.length <= 1) {
+  const me = gameState.players.find(p => p.id === getMyPlayerId()) || gameState.players[0];
+  const hand = gameState.hands[me.id] || [];
+  const card = hand[pendingCardIndex];
+  if (!card) {
     pendingCardIndex = null;
+    pendingTargetType = null;
     return;
   }
 
-  const label = document.createElement('div');
-  label.textContent = '攻撃対象を選んでください。';
-  targetSelection.appendChild(label);
+  if (pendingTargetType === 'enemy') {
+    const alive = getAliveEnemies();
+    if (alive.length === 0) {
+      pendingCardIndex = null;
+      pendingTargetType = null;
+      return;
+    }
 
-  alive.forEach(enemy => {
-    const button = document.createElement('button');
-    button.textContent = enemy.name;
-    button.addEventListener('click', () => selectTargetEnemy(enemy.id));
-    targetSelection.appendChild(button);
-  });
+    const label = document.createElement('div');
+    label.textContent = '攻撃対象を選んでください。';
+    targetSelection.appendChild(label);
+
+    alive.forEach(enemy => {
+      const button = document.createElement('button');
+      button.textContent = enemy.name;
+      button.addEventListener('click', () => selectTargetPlayer(enemy.id));
+      targetSelection.appendChild(button);
+    });
+    return;
+  }
+
+  if (pendingTargetType === 'ally') {
+    const targets = gameState.players.filter(p => p.hp > 0);
+    if (targets.length === 0) {
+      pendingCardIndex = null;
+      pendingTargetType = null;
+      return;
+    }
+
+    const label = document.createElement('div');
+    label.textContent = '味方を選んでください。';
+    targetSelection.appendChild(label);
+
+    targets.forEach(player => {
+      const button = document.createElement('button');
+      button.textContent = `${player.name} (${player.char})`;
+      button.addEventListener('click', () => selectTargetPlayer(player.id));
+      targetSelection.appendChild(button);
+    });
+    return;
+  }
+
+  pendingCardIndex = null;
+  pendingTargetType = null;
 }
 
 function renderEndTurnButton(me) {
@@ -558,6 +596,10 @@ function renderEndTurnButton(me) {
 
 function getAliveEnemies() {
   return (gameState.enemies || []).filter(enemy => enemy.hp > 0);
+}
+
+function getAlivePlayers() {
+  return (gameState.players || []).filter(player => player.hp > 0);
 }
 
 function hasPlayableCards(player) {
@@ -580,6 +622,14 @@ function playCard(index) {
 
   if (card.type === 'damage' && getAliveEnemies().length > 1) {
     pendingCardIndex = index;
+    pendingTargetType = 'enemy';
+    renderTargetSelection();
+    return;
+  }
+
+  if ((card.type === 'heal' || card.type === 'buff') && getAlivePlayers().length > 1) {
+    pendingCardIndex = index;
+    pendingTargetType = 'ally';
     renderTargetSelection();
     return;
   }
@@ -594,7 +644,7 @@ function playCard(index) {
   socket.emit('player-action', action);
 }
 
-function selectTargetEnemy(enemyId) {
+function selectTargetPlayer(targetId) {
   if (pendingCardIndex === null) return;
   const me = gameState.players.find(p => p.id === getMyPlayerId()) || gameState.players[0];
   if (!me) return;
@@ -608,9 +658,10 @@ function selectTargetEnemy(enemyId) {
     actionType: 'play-card',
     cardIndex: pendingCardIndex,
     cardId: card.id,
-    targetId: enemyId
+    targetId
   };
   pendingCardIndex = null;
+  pendingTargetType = null;
   targetSelection.innerHTML = '';
   socket.emit('player-action', action);
 }
@@ -660,9 +711,12 @@ function applyAction(data) {
   }
 
   if (card.type === 'buff') {
-    player.buffAttack += card.value;
-    player.buffTurn = card.turns;
-    addLog(`${player.name}に攻撃力バフ +${card.value}`);
+    const target = data.targetId ? gameState.players.find(p => p.id === data.targetId) : player;
+    if (target) {
+      target.buffAttack += card.value;
+      target.buffTurn = card.turns;
+      addLog(`${player.name}の${card.name}！ ${target.name}に攻撃力バフ +${card.value}`);
+    }
   }
 
   if (card.type === 'buffAll') {
@@ -684,8 +738,11 @@ function applyAction(data) {
   }
 
   if (card.type === 'heal') {
-    player.hp = Math.min(player.maxHp, player.hp + card.value);
-    addLog(`${player.name}を${card.value}回復`);
+    const target = data.targetId ? gameState.players.find(p => p.id === data.targetId) : player;
+    if (target) {
+      target.hp = Math.min(target.maxHp, target.hp + card.value);
+      addLog(`${player.name}の${card.name}！ ${target.name}を${card.value}回復`);
+    }
   }
 
   if (card.type === 'regen') {
