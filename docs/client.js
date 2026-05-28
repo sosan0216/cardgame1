@@ -620,14 +620,14 @@ function playCard(index) {
   const card = hand[index];
   if (!card || me.ap < card.cost) return;
 
-  if (card.type === 'damage' && getAliveEnemies().length > 1) {
+  if (card.type === 'damage' && getAliveEnemies().length > 0) {
     pendingCardIndex = index;
     pendingTargetType = 'enemy';
     renderTargetSelection();
     return;
   }
 
-  if ((card.type === 'heal' || card.type === 'buff') && getAlivePlayers().length > 1) {
+  if (['heal', 'buff', 'shield', 'doubleAttack'].includes(card.type) && getAlivePlayers().length > 0) {
     pendingCardIndex = index;
     pendingTargetType = 'ally';
     renderTargetSelection();
@@ -728,13 +728,19 @@ function applyAction(data) {
   }
 
   if (card.type === 'doubleAttack') {
-    player.doubleAttackTurns = card.turns || 1;
-    addLog(`${player.name}の攻撃力が${card.turns || 1}ターン倍化！`);
+    const target = data.targetId ? gameState.players.find(p => p.id === data.targetId) : player;
+    if (target) {
+      target.doubleAttackTurns = card.turns || 1;
+      addLog(`${player.name}の${card.name}！ ${target.name}の攻撃力が${card.turns || 1}ターン倍化！`);
+    }
   }
 
   if (card.type === 'shield') {
-    player.shield += card.value;
-    addLog(`${player.name}にシールド +${card.value}`);
+    const target = data.targetId ? gameState.players.find(p => p.id === data.targetId) : player;
+    if (target) {
+      target.shield += card.value;
+      addLog(`${player.name}の${card.name}！ ${target.name}にシールド +${card.value}`);
+    }
   }
 
   if (card.type === 'heal') {
